@@ -2,3 +2,4 @@ python-telegram-bot>=21.0
 python-dotenv>=1.0.0
 pandas>=2.2.3
 numpy>=2.2.0
+openpyxl
