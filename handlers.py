@@ -211,8 +211,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    /present — user manually marks themselves as joined.
-    Records their start time in memory; CSV row written on /leave.
+    /present — the calling user marks themselves as checked in.
+
+    Each user's session is tracked individually:
+      • Only this user's own check-in is recorded.
+      • No other user's state is touched.
+    If the user already has an active check-in their start time is echoed
+    and the command is a no-op.
     """
     chat = update.effective_chat
     user = update.effective_user
@@ -222,7 +227,7 @@ async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     name  = _full_name(user)
     uname = f"@{user.username}" if user.username else None
 
-    # Guard: already marked present
+    # Guard: this specific user is already checked in
     if attendance.is_active(chat.id, user.id):
         joined_at = attendance._active[chat.id][user.id]["join_time"]
         await update.message.reply_text(
@@ -248,30 +253,34 @@ async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    /leave — user manually marks themselves as left.
-    Reads join_time and session from _active BEFORE calling record_leave
-    (record_leave pops the entry), then confirms the saved values to the user.
+    /leave — the calling user checks themselves out.
+
+    Each user's session is tracked individually:
+      • Only this user's own active check-in is closed.
+      • No other user's state is touched.
+
+    If this user never sent /present (or already checked out), the command
+    is rejected with an explicit warning — they cannot check out without
+    first checking in.
     """
     chat = update.effective_chat
     user = update.effective_user
     label = _session(chat.id, context)
     name  = _full_name(user)
 
-    # Guard: not currently marked present
+    # Guard: reject /leave if this specific user has no active check-in
     if not attendance.is_active(chat.id, user.id):
         await update.message.reply_text(
-            f"ℹ️ <b>{html.escape(name)}</b>, you are not currently marked as present.\n"
-            f"Send /present first to mark your attendance.",
-            parse_mode=ParseMode.HTML,
+            "⚠️ You must use /present first before you can check out!"
         )
         return
 
     # Snapshot the active entry BEFORE record_leave pops it
     active_entry = attendance._active[chat.id][user.id]
-    join_time: datetime    = active_entry["join_time"]
-    stored_session: str    = active_entry.get("session") or label
+    join_time: datetime = active_entry["join_time"]
+    stored_session: str = active_entry.get("session") or label
 
-    # This pops the entry, calculates duration, and writes the CSV row
+    # Pops this user's entry, calculates duration, writes CSV + updates master Excel
     leave_time = attendance.record_leave(chat.id, label, user.id)
 
     if leave_time is None:

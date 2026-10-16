@@ -37,12 +37,9 @@ COLUMNS = [
     "Duration_Minutes", "Session", "Chat_ID",
 ]
 
-# ── Master Excel columns (display order) ─────────────────────────────────────
-MASTER_COLS = [
-    "No", "User_ID", "Full_Name",
-    "Date", "Present_Time", "Leave_Time",
-    "Duration", "Status",
-]
+# ── Status labels ─────────────────────────────────────────────────────────────
+STATUS_PRESENT   = "Present"    # written when /present is received
+STATUS_COMPLETED = "Completed"  # written when /leave is received
 
 # In-memory active store
 # { chat_id: { user_id: { username, name, join_time, session } } }
@@ -53,8 +50,8 @@ _TITLE_FONT   = Font(name="Calibri", bold=True, size=13)
 _HEADER_FONT  = Font(name="Calibri", bold=True, size=11, color="FFFFFF")
 _DATA_FONT    = Font(name="Calibri", size=10)
 _HEADER_FILL  = PatternFill("solid", fgColor="4472C4")   # blue
-_PRESENT_FILL = PatternFill("solid", fgColor="E2EFDA")   # light green
-_LEFT_FILL    = PatternFill("solid", fgColor="FCE4D6")   # light orange
+_PRESENT_FILL   = PatternFill("solid", fgColor="E2EFDA")   # light green  → Present
+_COMPLETED_FILL = PatternFill("solid", fgColor="FCE4D6")   # light orange → Completed
 _ALT_FILL     = PatternFill("solid", fgColor="F2F2F2")   # light grey
 _CENTER       = Alignment(horizontal="center", vertical="center", wrap_text=False)
 _LEFT_ALIGN   = Alignment(horizontal="left",   vertical="center", wrap_text=False)
@@ -169,8 +166,8 @@ def _write_data_row(ws, excel_row: int, seq_no: int, user_id, name: str,
                     date_str: str, present_time: str, leave_time: str,
                     duration: str, status: str) -> None:
     """Write one unmerged data row at excel_row."""
-    row_fill = _PRESENT_FILL if status == "Present" else (
-        _LEFT_FILL if seq_no % 2 != 0 else _ALT_FILL
+    row_fill = _PRESENT_FILL if status == STATUS_PRESENT else (
+        _COMPLETED_FILL if seq_no % 2 != 0 else _ALT_FILL
     )
     vals = [seq_no, user_id, name, date_str, present_time, leave_time, duration, status]
     for col, (val, (_, _, align)) in enumerate(zip(vals, _MASTER_COLS), 1):
@@ -206,7 +203,7 @@ def _rebuild_master() -> None:
             present_time=str(row.get("Join_Time", "")),
             leave_time=str(row.get("Leave_Time", "")),
             duration=_dur_str(float(dur_raw)) if pd.notna(dur_raw) and dur_raw else "—",
-            status="Left",
+            status=STATUS_COMPLETED,   # all historical CSV rows are completed
         )
 
     wb.save(MASTER_XLSX)
@@ -245,7 +242,7 @@ def _upsert_master(user_id: int, name: str, join_dt: datetime,
     """
     wb, ws, data_rows = _init_master_wb()
 
-    if status == "Present":
+    if status == STATUS_PRESENT:
         # ── Append a new Present row ──────────────────────────────────────────
         seq_no    = data_rows + 1
         excel_row = data_rows + 3   # row 1=title, row 2=header, row 3+=data
@@ -256,7 +253,7 @@ def _upsert_master(user_id: int, name: str, join_dt: datetime,
             present_time=join_dt.strftime("%H:%M:%S"),
             leave_time="—",
             duration="—",
-            status="Present",
+            status=STATUS_PRESENT,
         )
 
     else:
@@ -273,7 +270,7 @@ def _upsert_master(user_id: int, name: str, join_dt: datetime,
             if (str(cell_uid) == str(user_id)
                     and str(cell_date) == join_date
                     and str(cell_ptime) == join_time
-                    and cell_status == "Present"):
+                    and cell_status == STATUS_PRESENT):
                 target_row = r
                 break
 
@@ -281,18 +278,18 @@ def _upsert_master(user_id: int, name: str, join_dt: datetime,
         leave_str = leave_dt.strftime("%H:%M:%S") if leave_dt else "—"
 
         if target_row:
-            ws.cell(target_row, 6).value = leave_str   # Leave Time
-            ws.cell(target_row, 7).value = dur_disp    # Duration
-            ws.cell(target_row, 8).value = "Left"      # Status
+            ws.cell(target_row, 6).value = leave_str          # Leave Time
+            ws.cell(target_row, 7).value = dur_disp           # Duration
+            ws.cell(target_row, 8).value = STATUS_COMPLETED   # Status
             # Re-apply fill and border to the whole row
             seq_no = ws.cell(target_row, 1).value or 0
-            row_fill = _LEFT_FILL if int(seq_no) % 2 != 0 else _ALT_FILL
+            row_fill = _COMPLETED_FILL if int(seq_no) % 2 != 0 else _ALT_FILL
             for col in range(1, 9):
                 c = ws.cell(target_row, col)
                 c.fill   = row_fill
                 c.border = _THIN_BORDER
         else:
-            # Fallback: Present row not found — append a complete Left row
+            # Fallback: Present row not found — append a complete Completed row
             seq_no    = data_rows + 1
             excel_row = ws.max_row + 1
             _write_data_row(
@@ -302,7 +299,7 @@ def _upsert_master(user_id: int, name: str, join_dt: datetime,
                 present_time=join_time,
                 leave_time=leave_str,
                 duration=dur_disp,
-                status="Left",
+                status=STATUS_COMPLETED,
             )
 
     wb.save(MASTER_XLSX)
