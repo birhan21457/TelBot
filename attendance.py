@@ -49,19 +49,32 @@ MASTER_COLS = [
 _active: dict[int, dict[int, dict]] = {}
 
 # ── styling constants ─────────────────────────────────────────────────────────
-_TITLE_FONT   = Font(name="Calibri", bold=True, size=14)
+_TITLE_FONT   = Font(name="Calibri", bold=True, size=13)
 _HEADER_FONT  = Font(name="Calibri", bold=True, size=11, color="FFFFFF")
+_DATA_FONT    = Font(name="Calibri", size=10)
 _HEADER_FILL  = PatternFill("solid", fgColor="4472C4")   # blue
 _PRESENT_FILL = PatternFill("solid", fgColor="E2EFDA")   # light green
 _LEFT_FILL    = PatternFill("solid", fgColor="FCE4D6")   # light orange
 _ALT_FILL     = PatternFill("solid", fgColor="F2F2F2")   # light grey
-_CENTER       = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_LEFT_ALIGN   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+_CENTER       = Alignment(horizontal="center", vertical="center", wrap_text=False)
+_LEFT_ALIGN   = Alignment(horizontal="left",   vertical="center", wrap_text=False)
 
-_THIN  = Side(style="thin",   color="AAAAAA")
+_THIN  = Side(style="thin",  color="AAAAAA")
 _MED   = Side(style="medium", color="444444")
-_THIN_BORDER   = Border(left=_THIN,  right=_THIN,  top=_THIN,  bottom=_THIN)
-_HEADER_BORDER = Border(left=_MED,   right=_MED,   top=_MED,   bottom=_MED)
+_THIN_BORDER   = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+_HEADER_BORDER = Border(left=_MED,  right=_MED,  top=_MED,  bottom=_MED)
+
+# Column definitions: (header label, width, alignment)
+_MASTER_COLS = [
+    ("No",           6,  _CENTER),
+    ("User ID",      14, _CENTER),
+    ("Full Name",    28, _LEFT_ALIGN),
+    ("Date",         13, _CENTER),
+    ("Present Time", 14, _CENTER),
+    ("Leave Time",   12, _CENTER),
+    ("Duration",     13, _CENTER),
+    ("Status",       11, _CENTER),
+]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -114,94 +127,14 @@ def _append_csv(row: dict) -> None:
 
 # ── Master Excel helpers ──────────────────────────────────────────────────────
 
-def _apply_cell(cell, value, font=None, fill=None, alignment=None, border=None):
-    cell.value = value
-    if font:      cell.font      = font
-    if fill:      cell.fill      = fill
-    if alignment: cell.alignment = alignment
-    if border:    cell.border    = border
-
-
-def _rebuild_master() -> None:
-    """
-    Rebuild master_attendance.xlsx from scratch using the CSV as source of truth.
-    Called once at bot start or after a session delete. Normally _upsert_master
-    is used for incremental updates.
-    """
-    df = _read_csv()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Attendance"
-    _write_master_sheet(ws, df)
-    _set_print_props(ws)
-    wb.save(MASTER_XLSX)
-
-
-def _write_master_sheet(ws, df: pd.DataFrame) -> None:
-    """Write title row, header row, and all data rows to ws."""
-    # ── Title ─────────────────────────────────────────────────────────────────
-    ws.merge_cells("A1:H1")
-    title_cell = ws["A1"]
-    title_cell.value     = "Student / Member Attendance Summary Sheet"
-    title_cell.font      = _TITLE_FONT
-    title_cell.alignment = _CENTER
-    ws.row_dimensions[1].height = 28
-
-    # ── Header ────────────────────────────────────────────────────────────────
-    headers = ["No", "User ID", "Full Name", "Date",
-               "Present Time", "Leave Time", "Duration", "Status"]
-    for col, hdr in enumerate(headers, 1):
-        c = ws.cell(2, col, hdr)
-        c.font      = _HEADER_FONT
-        c.fill      = _HEADER_FILL
-        c.alignment = _CENTER
-        c.border    = _HEADER_BORDER
-    ws.row_dimensions[2].height = 18
-
-    # ── Data rows ─────────────────────────────────────────────────────────────
-    for i, (_, row) in enumerate(df.iterrows(), 1):
-        r = i + 2   # Excel row index (1=title, 2=header, 3+=data)
-
-        status   = str(row.get("Status", "Left")) if "Status" in df.columns else "Left"
-        is_pres  = status == "Present"
-        row_fill = _PRESENT_FILL if is_pres else (_ALT_FILL if i % 2 == 0 else None)
-
-        dur_raw  = row.get("Duration_Minutes", 0)
-        dur_disp = "—" if is_pres else _dur_str(float(dur_raw) if pd.notna(dur_raw) else 0)
-
-        vals = [
-            i,
-            int(row["User_ID"]) if pd.notna(row.get("User_ID")) else "",
-            str(row.get("Full_Name", "")),
-            str(row.get("Join_Date", "")),
-            str(row.get("Join_Time", "")),
-            str(row.get("Leave_Time", "")) if not is_pres else "—",
-            dur_disp,
-            status,
-        ]
-        for col, val in enumerate(vals, 1):
-            c = ws.cell(r, col, val)
-            c.alignment = _CENTER if col in (1, 4, 5, 6, 7, 8) else _LEFT_ALIGN
-            c.border    = _THIN_BORDER
-            if row_fill:
-                c.fill = row_fill
-
-        ws.row_dimensions[r].height = 16
-
-    # ── Column widths ─────────────────────────────────────────────────────────
-    widths = [6, 14, 28, 12, 14, 12, 14, 12]
-    for col, w in enumerate(widths, 1):
-        ws.column_dimensions[get_column_letter(col)].width = w
-
-
 def _set_print_props(ws) -> None:
-    """Configure the worksheet for clean printing."""
-    ws.page_setup.orientation     = "landscape"
-    ws.page_setup.fitToPage       = True
-    ws.page_setup.fitToWidth      = 1
-    ws.page_setup.fitToHeight     = 0          # unlimited pages tall
-    ws.page_setup.paperSize       = ws.PAPERSIZE_A4
-    ws.print_title_rows           = "1:2"      # repeat title+header on every page
+    """Configure worksheet for clean landscape printing on A4."""
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToPage   = True
+    ws.page_setup.fitToWidth  = 1
+    ws.page_setup.fitToHeight = 0          # unlimited height
+    ws.page_setup.paperSize   = ws.PAPERSIZE_A4
+    ws.print_title_rows       = "1:2"      # repeat title + header on every page
     ws.page_margins = PageMargins(
         left=0.5, right=0.5, top=0.75, bottom=0.75,
         header=0.3, footer=0.3,
@@ -209,116 +142,168 @@ def _set_print_props(ws) -> None:
     ws.sheet_view.showGridLines = True
 
 
+def _write_title_row(ws) -> None:
+    """
+    Row 1 — plain unmerged title cell in A1 only.
+    No merge_cells; the text sits in A1 and the empty B1-H1 cells are just blank.
+    """
+    c = ws.cell(1, 1, "Student / Member Attendance Summary Sheet")
+    c.font      = _TITLE_FONT
+    c.alignment = _LEFT_ALIGN
+    ws.row_dimensions[1].height = 24
+
+
+def _write_header_row(ws) -> None:
+    """Row 2 — bold blue header, one cell per column, no merging."""
+    for col, (label, width, align) in enumerate(_MASTER_COLS, 1):
+        c = ws.cell(2, col, label)
+        c.font      = _HEADER_FONT
+        c.fill      = _HEADER_FILL
+        c.alignment = _CENTER        # headers always centred
+        c.border    = _HEADER_BORDER
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.row_dimensions[2].height = 18
+
+
+def _write_data_row(ws, excel_row: int, seq_no: int, user_id, name: str,
+                    date_str: str, present_time: str, leave_time: str,
+                    duration: str, status: str) -> None:
+    """Write one unmerged data row at excel_row."""
+    row_fill = _PRESENT_FILL if status == "Present" else (
+        _LEFT_FILL if seq_no % 2 != 0 else _ALT_FILL
+    )
+    vals = [seq_no, user_id, name, date_str, present_time, leave_time, duration, status]
+    for col, (val, (_, _, align)) in enumerate(zip(vals, _MASTER_COLS), 1):
+        c = ws.cell(excel_row, col, val)
+        c.font      = _DATA_FONT
+        c.alignment = align
+        c.border    = _THIN_BORDER
+        c.fill      = row_fill
+    ws.row_dimensions[excel_row].height = 16
+
+
+def _rebuild_master() -> None:
+    """
+    Rebuild master_attendance.xlsx from scratch using the CSV as source of truth.
+    Called after a session delete. No merged cells anywhere.
+    """
+    df = _read_csv()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Attendance"
+
+    _write_title_row(ws)
+    _write_header_row(ws)
+    _set_print_props(ws)
+
+    for i, (_, row) in enumerate(df.iterrows(), 1):
+        dur_raw = row.get("Duration_Minutes", 0)
+        _write_data_row(
+            ws, excel_row=i + 2, seq_no=i,
+            user_id=int(row["User_ID"]) if pd.notna(row.get("User_ID")) else "",
+            name=str(row.get("Full_Name", "")),
+            date_str=str(row.get("Join_Date", "")),
+            present_time=str(row.get("Join_Time", "")),
+            leave_time=str(row.get("Leave_Time", "")),
+            duration=_dur_str(float(dur_raw)) if pd.notna(dur_raw) and dur_raw else "—",
+            status="Left",
+        )
+
+    wb.save(MASTER_XLSX)
+
+
+def _init_master_wb() -> tuple:
+    """
+    Load existing master workbook, or create a fresh one with title+header rows.
+    Returns (wb, ws, data_row_count).
+    No merge_cells used anywhere.
+    """
+    if os.path.exists(MASTER_XLSX):
+        wb = load_workbook(MASTER_XLSX)
+        ws = wb.active
+        data_rows = max(0, ws.max_row - 2)   # subtract title row + header row
+        return wb, ws, data_rows
+
+    # ── Brand-new file ────────────────────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Attendance"
+    _write_title_row(ws)
+    _write_header_row(ws)
+    _set_print_props(ws)
+    return wb, ws, 0
+
+
 def _upsert_master(user_id: int, name: str, join_dt: datetime,
                    leave_dt: Optional[datetime], duration_minutes: Optional[float],
                    session: str, status: str) -> None:
     """
-    Open master_attendance.xlsx (or create it), then:
-    - On /present  (status='Present') : append a new row with no leave info.
-    - On /leave    (status='Left')    : find the matching Present row and fill it.
-    Saves the file atomically.
+    Incrementally update master_attendance.xlsx.
+    /present → append a new row with Status=Present, Leave Time and Duration blank.
+    /leave   → find the matching Present row and fill Leave Time, Duration, Status.
+    Zero merged cells in the entire file.
     """
-    # ── Load or create workbook ───────────────────────────────────────────────
-    if os.path.exists(MASTER_XLSX):
-        wb = load_workbook(MASTER_XLSX)
-        ws = wb.active
-        # Count existing data rows (skip title row 1 and header row 2)
-        existing_rows = ws.max_row - 2
-        if existing_rows < 0:
-            existing_rows = 0
-    else:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Attendance"
-        # Title row
-        ws.merge_cells("A1:H1")
-        t = ws["A1"]
-        t.value, t.font, t.alignment = (
-            "Student / Member Attendance Summary Sheet",
-            _TITLE_FONT, _CENTER,
-        )
-        ws.row_dimensions[1].height = 28
-        # Header row
-        headers = ["No", "User ID", "Full Name", "Date",
-                   "Present Time", "Leave Time", "Duration", "Status"]
-        for col, hdr in enumerate(headers, 1):
-            c = ws.cell(2, col, hdr)
-            c.font, c.fill, c.alignment, c.border = (
-                _HEADER_FONT, _HEADER_FILL, _CENTER, _HEADER_BORDER,
-            )
-        ws.row_dimensions[2].height = 18
-        _set_print_props(ws)
-        existing_rows = 0
+    wb, ws, data_rows = _init_master_wb()
 
     if status == "Present":
         # ── Append a new Present row ──────────────────────────────────────────
-        row_num  = existing_rows + 3          # +1 title, +1 header, +1 new
-        seq_no   = existing_rows + 1
-        row_fill = _PRESENT_FILL
-
-        vals = [
-            seq_no,
-            user_id,
-            name,
-            join_dt.strftime("%Y-%m-%d"),
-            join_dt.strftime("%H:%M:%S"),
-            "—",          # Leave Time not yet known
-            "—",          # Duration not yet known
-            "Present",
-        ]
-        for col, val in enumerate(vals, 1):
-            c = ws.cell(row_num, col, val)
-            c.alignment = _CENTER if col in (1, 4, 5, 6, 7, 8) else _LEFT_ALIGN
-            c.border    = _THIN_BORDER
-            c.fill      = row_fill
-        ws.row_dimensions[row_num].height = 16
+        seq_no    = data_rows + 1
+        excel_row = data_rows + 3   # row 1=title, row 2=header, row 3+=data
+        _write_data_row(
+            ws, excel_row=excel_row, seq_no=seq_no,
+            user_id=user_id, name=name,
+            date_str=join_dt.strftime("%Y-%m-%d"),
+            present_time=join_dt.strftime("%H:%M:%S"),
+            leave_time="—",
+            duration="—",
+            status="Present",
+        )
 
     else:
-        # ── Find existing Present row and fill in leave info ──────────────────
+        # ── Find matching Present row and fill it in ──────────────────────────
         target_row = None
+        join_date  = join_dt.strftime("%Y-%m-%d")
+        join_time  = join_dt.strftime("%H:%M:%S")
+
         for r in range(3, ws.max_row + 1):
             cell_uid    = ws.cell(r, 2).value   # col B = User ID
             cell_date   = ws.cell(r, 4).value   # col D = Date
+            cell_ptime  = ws.cell(r, 5).value   # col E = Present Time
             cell_status = ws.cell(r, 8).value   # col H = Status
             if (str(cell_uid) == str(user_id)
-                    and cell_date == join_dt.strftime("%Y-%m-%d")
+                    and str(cell_date) == join_date
+                    and str(cell_ptime) == join_time
                     and cell_status == "Present"):
                 target_row = r
                 break
 
+        dur_disp  = _dur_str(duration_minutes) if duration_minutes is not None else "—"
+        leave_str = leave_dt.strftime("%H:%M:%S") if leave_dt else "—"
+
         if target_row:
-            dur_disp = _dur_str(duration_minutes) if duration_minutes is not None else "—"
-            leave_str = leave_dt.strftime("%H:%M:%S") if leave_dt else "—"
-
-            ws.cell(target_row, 6).value = leave_str    # Leave Time
-            ws.cell(target_row, 7).value = dur_disp     # Duration
-            ws.cell(target_row, 8).value = "Left"       # Status
-
-            # Re-style the updated row
-            row_fill = _LEFT_FILL
+            ws.cell(target_row, 6).value = leave_str   # Leave Time
+            ws.cell(target_row, 7).value = dur_disp    # Duration
+            ws.cell(target_row, 8).value = "Left"      # Status
+            # Re-apply fill and border to the whole row
+            seq_no = ws.cell(target_row, 1).value or 0
+            row_fill = _LEFT_FILL if int(seq_no) % 2 != 0 else _ALT_FILL
             for col in range(1, 9):
                 c = ws.cell(target_row, col)
                 c.fill   = row_fill
                 c.border = _THIN_BORDER
         else:
-            # Fallback: no matching Present row found — append a complete Left row
-            row_num  = ws.max_row + 1
-            seq_no   = row_num - 2
-            dur_disp = _dur_str(duration_minutes) if duration_minutes is not None else "—"
-            leave_str = leave_dt.strftime("%H:%M:%S") if leave_dt else "—"
-
-            vals = [
-                seq_no, user_id, name,
-                join_dt.strftime("%Y-%m-%d"),
-                join_dt.strftime("%H:%M:%S"),
-                leave_str, dur_disp, "Left",
-            ]
-            for col, val in enumerate(vals, 1):
-                c = ws.cell(row_num, col, val)
-                c.alignment = _CENTER if col in (1, 4, 5, 6, 7, 8) else _LEFT_ALIGN
-                c.border    = _THIN_BORDER
-                c.fill      = _LEFT_FILL
-            ws.row_dimensions[row_num].height = 16
+            # Fallback: Present row not found — append a complete Left row
+            seq_no    = data_rows + 1
+            excel_row = ws.max_row + 1
+            _write_data_row(
+                ws, excel_row=excel_row, seq_no=seq_no,
+                user_id=user_id, name=name,
+                date_str=join_date,
+                present_time=join_time,
+                leave_time=leave_str,
+                duration=dur_disp,
+                status="Left",
+            )
 
     wb.save(MASTER_XLSX)
 
