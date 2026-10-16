@@ -24,11 +24,16 @@ _DEFAULT_TIMEZONE = "Africa/Nairobi"   # EAT (UTC+3)
 BOT_TOKEN: str = os.getenv("BOT_TOKEN") or _DEFAULT_TOKEN
 
 # ── Admin user IDs ────────────────────────────────────────────────────────────
+# Merges .env value AND the hardcoded default so neither is ever lost.
+# Even if .env is missing or ADMIN_IDS is blank, the hardcoded ID still works.
 
-_raw_admins = os.getenv("ADMIN_IDS") or _DEFAULT_ADMINS
+_raw_admins = os.getenv("ADMIN_IDS", "") + "," + _DEFAULT_ADMINS
 ADMIN_IDS: set[int] = {
     int(uid.strip()) for uid in _raw_admins.split(",") if uid.strip().isdigit()
 }
+
+# Print at startup so you can confirm the right IDs are loaded
+print(f"[config] ADMIN_IDS loaded: {ADMIN_IDS}")
 
 # ── Timezone ──────────────────────────────────────────────────────────────────
 

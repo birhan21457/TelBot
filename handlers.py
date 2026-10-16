@@ -54,7 +54,10 @@ def _full_name(user) -> str:
 
 
 def _is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    result = user_id in ADMIN_IDS
+    if not result:
+        logger.warning("Admin check FAILED: user_id=%s not in ADMIN_IDS=%s", user_id, ADMIN_IDS)
+    return result
 
 
 def _cache_title(chat, context: ContextTypes.DEFAULT_TYPE) -> None:
