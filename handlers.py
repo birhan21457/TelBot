@@ -5,11 +5,11 @@ Video-chat events detected:
   • video_chat_started                  → announces tracking is active
   • video_chat_ended                    → force-closes all open entries
   • video_chat_participants_invited     → records invited users as joined
-  • ChatMemberUpdated (chat_member)     → primary join/leave detection
+  • ChatMemberUpdated (chat_member)     → automatic join/leave detection
 
-Session naming:
-  Auto-label = "<Chat Title> — YYYY-MM-DD"
-  Admins can override with /setsession <label>.
+Manual attendance commands (work without a live video chat):
+  • /present   → user marks themselves as joined, records start time
+  • /leave     → user marks themselves as left, saves row to CSV
 """
 
 import html
@@ -193,15 +193,112 @@ async def on_chat_member_updated(
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 <b>Attendance Bot</b>\n\n"
-        "I automatically track who joins and leaves video chats in this group "
-        "and record their times in a CSV file.\n\n"
-        "<b>Commands:</b>\n"
+        "I track attendance for video chats in this group — automatically "
+        "via chat events, or manually using the commands below.\n\n"
+        "<b>📌 Manual attendance:</b>\n"
+        "/present — mark yourself as joined (records your start time)\n"
+        "/leave — mark yourself as left (saves your entry to CSV)\n\n"
+        "<b>📊 Reports (admins only):</b>\n"
         "/report — attendance summary for the current session\n"
         "/export — download attendance as an Excel file\n"
         "/sessions — list all recorded sessions\n"
-        "/whoisin — show who is currently in the call\n"
-        "/setsession &lt;label&gt; — set a custom session name (admins)\n"
-        "/deletesession — delete current session data (admins)\n",
+        "/whoisin — show who is currently marked as present\n\n"
+        "<b>⚙️ Admin only:</b>\n"
+        "/setsession &lt;label&gt; — set a custom session name\n"
+        "/deletesession — delete current session data\n",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /present — user manually marks themselves as joined.
+    Records their start time in memory; CSV row written on /leave.
+    """
+    chat = update.effective_chat
+    user = update.effective_user
+    _cache_title(chat, context)
+
+    label = _session(chat.id, context)
+    name  = _full_name(user)
+    uname = f"@{user.username}" if user.username else None
+
+    # Guard: already marked present
+    if attendance.is_active(chat.id, user.id):
+        joined_at = attendance._active[chat.id][user.id]["join_time"]
+        await update.message.reply_text(
+            f"ℹ️ <b>{html.escape(name)}</b>, you are already marked as present "
+            f"since {joined_at.strftime('%H:%M:%S')}.\n"
+            f"Send /leave when you are done.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    join_time = attendance.record_join(chat.id, label, user.id, name, uname)
+    logger.info("MANUAL JOIN | %s (%s) | %s | session='%s'",
+                name, user.id, join_time.strftime("%H:%M:%S"), label)
+
+    await update.message.reply_text(
+        f"✅ <b>{html.escape(name)}</b> marked as <b>present</b>\n"
+        f"🕐 Start time: <b>{join_time.strftime('%H:%M:%S')}</b>\n"
+        f"📋 Session: <code>{html.escape(label)}</code>\n\n"
+        f"Send /leave when you are done.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /leave — user manually marks themselves as left.
+    Reads join_time and session from _active BEFORE calling record_leave
+    (record_leave pops the entry), then confirms the saved values to the user.
+    """
+    chat = update.effective_chat
+    user = update.effective_user
+    label = _session(chat.id, context)
+    name  = _full_name(user)
+
+    # Guard: not currently marked present
+    if not attendance.is_active(chat.id, user.id):
+        await update.message.reply_text(
+            f"ℹ️ <b>{html.escape(name)}</b>, you are not currently marked as present.\n"
+            f"Send /present first to mark your attendance.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Snapshot the active entry BEFORE record_leave pops it
+    active_entry = attendance._active[chat.id][user.id]
+    join_time: datetime    = active_entry["join_time"]
+    stored_session: str    = active_entry.get("session") or label
+
+    # This pops the entry, calculates duration, and writes the CSV row
+    leave_time = attendance.record_leave(chat.id, label, user.id)
+
+    if leave_time is None:
+        await update.message.reply_text(
+            "⚠️ Something went wrong saving your attendance. Please try again."
+        )
+        return
+
+    duration_secs = int((leave_time - join_time).total_seconds())
+    m, s = divmod(duration_secs, 60)
+    h, m = divmod(m, 60)
+    dur_str = f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
+
+    logger.info("MANUAL LEAVE | %s (%s) | join=%s leave=%s duration=%s | session='%s'",
+                name, user.id,
+                join_time.strftime("%H:%M:%S"),
+                leave_time.strftime("%H:%M:%S"),
+                dur_str, stored_session)
+
+    await update.message.reply_text(
+        f"👋 <b>{html.escape(name)}</b> marked as <b>left</b>\n"
+        f"🕐 Joined:   <b>{join_time.strftime('%H:%M:%S')}</b>\n"
+        f"🕐 Left:     <b>{leave_time.strftime('%H:%M:%S')}</b>\n"
+        f"⏱ Duration: <b>{dur_str}</b>\n"
+        f"📋 Session:  <code>{html.escape(stored_session)}</code>\n\n"
+        f"✔️ Your attendance has been saved to the record.",
         parse_mode=ParseMode.HTML,
     )
 
@@ -224,6 +321,11 @@ async def cmd_setsession(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update.effective_user.id):
+        await update.message.reply_text(
+            "⛔ Only admins can download or view attendance reports."
+        )
+        return
     chat = update.effective_chat
     label = _session(chat.id, context)
     df = attendance.get_session_df(chat.id, label)
@@ -242,6 +344,11 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_admin(update.effective_user.id):
+        await update.message.reply_text(
+            "⛔ Only admins can download or view attendance reports."
+        )
+        return
     chat = update.effective_chat
     label = _session(chat.id, context)
     df = attendance.get_session_df(chat.id, label)

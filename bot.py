@@ -19,6 +19,8 @@ from config import BOT_TOKEN
 from handlers import (
     cmd_deletesession,
     cmd_export,
+    cmd_leave,
+    cmd_present,
     cmd_report,
     cmd_sessions,
     cmd_setsession,
@@ -65,6 +67,8 @@ def main() -> None:
 
     # ── Commands ──────────────────────────────────────────────────────────────
     app.add_handler(CommandHandler("start",          cmd_start))
+    app.add_handler(CommandHandler("present",        cmd_present))
+    app.add_handler(CommandHandler("leave",          cmd_leave))
     app.add_handler(CommandHandler("setsession",     cmd_setsession))
     app.add_handler(CommandHandler("report",         cmd_report))
     app.add_handler(CommandHandler("export",         cmd_export))

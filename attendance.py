@@ -5,14 +5,21 @@ CSV schema (one row per completed session entry):
     User_ID          int       Telegram user ID
     Username         str       @handle or empty string
     Full_Name        str       First + Last name
-    Join_Time        str       "YYYY-MM-DD HH:MM:SS"
-    Leave_Time       str       "YYYY-MM-DD HH:MM:SS"  — empty while still in call
-    Duration_Minutes float     Rounded to 2 dp; empty while still in call
+    Join_Date        str       "YYYY-MM-DD"
+    Join_Time        str       "HH:MM:SS"
+    Leave_Date       str       "YYYY-MM-DD"
+    Leave_Time       str       "HH:MM:SS"
+    Duration_Minutes float     Rounded to 2 dp
     Session          str       Session label (e.g. "Math Class — 2024-10-16")
     Chat_ID          int       Telegram chat ID
 
 Active (in-call) participants are held in memory in _active:
-    _active[chat_id][user_id] = {"username": ..., "name": ..., "join_time": datetime, "session": ...}
+    _active[chat_id][user_id] = {
+        "username": str | None,
+        "name": str,
+        "join_time": datetime,   # full datetime with tz
+        "session": str,
+    }
 Once a user leaves, the completed row is appended to the CSV.
 """
 
@@ -29,7 +36,9 @@ COLUMNS = [
     "User_ID",
     "Username",
     "Full_Name",
+    "Join_Date",
     "Join_Time",
+    "Leave_Date",
     "Leave_Time",
     "Duration_Minutes",
     "Session",
@@ -56,19 +65,28 @@ def _read() -> pd.DataFrame:
 
 
 def _append_row(row: dict) -> None:
-    """Append a single completed row to the CSV."""
+    """
+    Append a single completed attendance row to the CSV.
+    join_dt and leave_dt are tz-aware datetime objects.
+    """
     init_csv()
-    df = pd.read_csv(CSV_FILE)
+    join_dt:  datetime = row["join_time"]
+    leave_dt: datetime = row["leave_time"]
+
     new_entry = {
         "User_ID":           row["user_id"],
         "Username":          row["username"] or "",
         "Full_Name":         row["name"],
-        "Join_Time":         row["join_time"].strftime("%Y-%m-%d %H:%M:%S"),
-        "Leave_Time":        row["leave_time"].strftime("%Y-%m-%d %H:%M:%S"),
+        "Join_Date":         join_dt.strftime("%Y-%m-%d"),
+        "Join_Time":         join_dt.strftime("%H:%M:%S"),
+        "Leave_Date":        leave_dt.strftime("%Y-%m-%d"),
+        "Leave_Time":        leave_dt.strftime("%H:%M:%S"),
         "Duration_Minutes":  round(row["duration_minutes"], 2),
         "Session":           row["session"],
         "Chat_ID":           row["chat_id"],
     }
+
+    df = pd.read_csv(CSV_FILE)
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
     df.to_csv(CSV_FILE, index=False)
 
@@ -87,7 +105,7 @@ def record_join(
     username: Optional[str],
 ) -> datetime:
     """
-    Record that user_id joined the video chat.
+    Record that user_id joined the session.
     Stores in memory; the CSV row is only written on leave.
     Returns the join timestamp.
     """
@@ -107,26 +125,28 @@ def record_leave(
     user_id: int,
 ) -> Optional[datetime]:
     """
-    Record that user_id left the video chat.
-    Calculates duration and appends the completed row to the CSV.
+    Record that user_id left the session.
+    Always uses the session label stored at join time so the CSV row
+    is guaranteed to match the session the user joined under.
     Returns the leave timestamp, or None if no active entry existed.
     """
-    session = _active.get(chat_id, {}).pop(user_id, None)
-    if session is None:
+    entry = _active.get(chat_id, {}).pop(user_id, None)
+    if entry is None:
         return None
 
     leave_time = _now()
-    join_time: datetime = session["join_time"]
+    join_time: datetime = entry["join_time"]
+    stored_session: str = entry.get("session") or session_label
     duration_minutes = (leave_time - join_time).total_seconds() / 60
 
     _append_row({
         "user_id":          user_id,
-        "username":         session["username"],
-        "name":             session["name"],
+        "username":         entry["username"],
+        "name":             entry["name"],
         "join_time":        join_time,
         "leave_time":       leave_time,
         "duration_minutes": duration_minutes,
-        "session":          session_label,
+        "session":          stored_session,
         "chat_id":          chat_id,
     })
     return leave_time
@@ -134,7 +154,7 @@ def record_leave(
 
 def close_all_active(chat_id: int, session_label: str) -> int:
     """
-    Force-close every participant still marked as active (called on video_chat_ended).
+    Force-close every participant still marked as active (e.g. on video_chat_ended).
     Returns the number of entries closed.
     """
     user_ids = list(_active.get(chat_id, {}).keys())
@@ -177,3 +197,8 @@ def get_active_participants(chat_id: int) -> list[dict]:
         {"user_id": uid, **info}
         for uid, info in _active.get(chat_id, {}).items()
     ]
+
+
+def is_active(chat_id: int, user_id: int) -> bool:
+    """Return True if user_id is currently marked as present in chat_id."""
+    return user_id in _active.get(chat_id, {})
