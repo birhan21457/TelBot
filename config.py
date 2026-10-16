@@ -53,3 +53,6 @@ CSV_FILE = os.path.join(DATA_DIR, "attendance.csv")
 
 EXPORT_DIR = os.path.join(DATA_DIR, "exports")
 os.makedirs(EXPORT_DIR, exist_ok=True)
+
+# Single master Excel file — all attendance across all sessions
+MASTER_XLSX = os.path.join(DATA_DIR, "master_attendance.xlsx")

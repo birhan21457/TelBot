@@ -54,10 +54,7 @@ def _full_name(user) -> str:
 
 
 def _is_admin(user_id: int) -> bool:
-    result = user_id in ADMIN_IDS
-    if not result:
-        logger.warning("Admin check FAILED: user_id=%s not in ADMIN_IDS=%s", user_id, ADMIN_IDS)
-    return result
+    return user_id in ADMIN_IDS
 
 
 def _cache_title(chat, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -196,16 +193,15 @@ async def on_chat_member_updated(
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 <b>Attendance Bot</b>\n\n"
-        "I track attendance for video chats in this group — automatically "
-        "via chat events, or manually using the commands below.\n\n"
-        "<b>📌 Manual attendance:</b>\n"
-        "/present — mark yourself as joined (records your start time)\n"
-        "/leave — mark yourself as left (saves your entry to CSV)\n\n"
-        "<b>📊 Reports (admins only):</b>\n"
-        "/report — attendance summary for the current session\n"
-        "/export — download attendance as an Excel file\n"
-        "/sessions — list all recorded sessions\n"
+        "Track attendance manually right inside the group chat.\n\n"
+        "<b>📌 Attendance:</b>\n"
+        "/present — mark yourself as present (records start time)\n"
+        "/leave — mark yourself as left (saves entry to master sheet)\n"
+        "/export — download the master attendance Excel file\n"
         "/whoisin — show who is currently marked as present\n\n"
+        "<b>📊 Reports (admins only):</b>\n"
+        "/report — text attendance summary for the current session\n"
+        "/sessions — list all recorded sessions\n\n"
         "<b>⚙️ Admin only:</b>\n"
         "/setsession &lt;label&gt; — set a custom session name\n"
         "/deletesession — delete current session data\n",
@@ -347,23 +343,23 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _is_admin(update.effective_user.id):
+    """Send the single master_attendance.xlsx to the chat. Open to everyone."""
+    from config import MASTER_XLSX
+
+    if not os.path.exists(MASTER_XLSX):
         await update.message.reply_text(
-            "⛔ Only admins can download or view attendance reports."
+            "📭 No attendance data yet.\n"
+            "Members need to use /present and /leave first."
         )
         return
-    chat = update.effective_chat
-    label = _session(chat.id, context)
-    df = attendance.get_session_df(chat.id, label)
-    if df.empty:
-        await update.message.reply_text("No completed entries to export yet.")
-        return
-    filepath = build_excel_report(chat.id, label, df)
-    with open(filepath, "rb") as f:
+
+    with open(MASTER_XLSX, "rb") as f:
         await update.message.reply_document(
             document=f,
-            filename=os.path.basename(filepath),
-            caption=f"📊 Attendance — {html.escape(label)}",
+            filename="master_attendance.xlsx",
+            caption="📊 <b>Master Attendance Sheet</b>\n"
+                    "All sessions — print-ready format.",
+            parse_mode=ParseMode.HTML,
         )
 
 
