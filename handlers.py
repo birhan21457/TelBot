@@ -74,11 +74,14 @@ async def on_video_chat_started(
     label = _session(chat.id, context)
     attendance.init_csv()
     logger.info("Video chat started | chat=%s | session='%s'", chat.id, label)
-    await update.effective_message.reply_text(
-        f"🎙 <b>Video chat started</b>\n"
-        f"📋 Session: <code>{html.escape(label)}</code>\n\n"
-        f"Attendance tracking is <b>active</b>.\n"
-        f"Admins can rename the session with /setsession &lt;label&gt;.",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=(
+            f"🎙 <b>Video chat started</b>\n"
+            f"📋 Session: <code>{html.escape(label)}</code>\n\n"
+            f"Attendance tracking is <b>active</b>.\n"
+            f"Admins can rename the session with /setsession &lt;label&gt;."
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -97,11 +100,14 @@ async def on_video_chat_ended(
     mins, secs = divmod(duration_secs, 60)
 
     logger.info("Video chat ended | chat=%s | closed %d open entries", chat.id, closed)
-    await update.effective_message.reply_text(
-        f"🔴 <b>Video chat ended</b>\n"
-        f"📋 Session: <code>{html.escape(label)}</code>\n"
-        f"⏱ Duration: {mins}m {secs}s\n\n"
-        f"Use /report to see the attendance summary.",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=(
+            f"🔴 <b>Video chat ended</b>\n"
+            f"📋 Session: <code>{html.escape(label)}</code>\n"
+            f"⏱ Duration: {mins}m {secs}s\n\n"
+            f"Use /report to see the attendance summary."
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -191,20 +197,23 @@ async def on_chat_member_updated(
 # ── commands ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "👋 <b>Attendance Bot</b>\n\n"
-        "Track attendance manually right inside the group chat.\n\n"
-        "<b>📌 Attendance:</b>\n"
-        "/present — mark yourself as present (records start time)\n"
-        "/leave — mark yourself as left (saves entry to master sheet)\n"
-        "/export — download the master attendance Excel file\n"
-        "/whoisin — show who is currently marked as present\n\n"
-        "<b>📊 Reports (admins only):</b>\n"
-        "/report — text attendance summary for the current session\n"
-        "/sessions — list all recorded sessions\n\n"
-        "<b>⚙️ Admin only:</b>\n"
-        "/setsession &lt;label&gt; — set a custom session name\n"
-        "/deletesession — delete current session data\n",
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=(
+            "👋 <b>Attendance Bot</b>\n\n"
+            "Track attendance manually right inside the group chat.\n\n"
+            "<b>📌 Attendance:</b>\n"
+            "/present — mark yourself as present (records start time)\n"
+            "/leave — mark yourself as left (saves entry to master sheet)\n"
+            "/export — download the master attendance Excel file\n"
+            "/whoisin — show who is currently marked as present\n\n"
+            "<b>📊 Reports (admins only):</b>\n"
+            "/report — text attendance summary for the current session\n"
+            "/sessions — list all recorded sessions\n\n"
+            "<b>⚙️ Admin only:</b>\n"
+            "/setsession &lt;label&gt; — set a custom session name\n"
+            "/deletesession — delete current session data\n"
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -230,10 +239,13 @@ async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Guard: this specific user is already checked in
     if attendance.is_active(chat.id, user.id):
         joined_at = attendance._active[chat.id][user.id]["join_time"]
-        await update.message.reply_text(
-            f"ℹ️ <b>{html.escape(name)}</b>, you are already marked as present "
-            f"since {joined_at.strftime('%H:%M:%S')}.\n"
-            f"Send /leave when you are done.",
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"ℹ️ <b>{html.escape(name)}</b>, you are already marked as present "
+                f"since {joined_at.strftime('%H:%M:%S')}.\n"
+                f"Send /leave when you are done."
+            ),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -242,11 +254,14 @@ async def cmd_present(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info("MANUAL JOIN | %s (%s) | %s | session='%s'",
                 name, user.id, join_time.strftime("%H:%M:%S"), label)
 
-    await update.message.reply_text(
-        f"✅ <b>{html.escape(name)}</b> marked as <b>present</b>\n"
-        f"🕐 Start time: <b>{join_time.strftime('%H:%M:%S')}</b>\n"
-        f"📋 Session: <code>{html.escape(label)}</code>\n\n"
-        f"Send /leave when you are done.",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=(
+            f"✅ <b>{html.escape(name)}</b> marked as <b>present</b>\n"
+            f"🕐 Start time: <b>{join_time.strftime('%H:%M:%S')}</b>\n"
+            f"📋 Session: <code>{html.escape(label)}</code>\n\n"
+            f"Send /leave when you are done."
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -270,8 +285,9 @@ async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Guard: reject /leave if this specific user has no active check-in
     if not attendance.is_active(chat.id, user.id):
-        await update.message.reply_text(
-            "⚠️ You must use /present first before you can check out!"
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⚠️ You must use /present first before you can check out!",
         )
         return
 
@@ -284,8 +300,9 @@ async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     leave_time = attendance.record_leave(chat.id, label, user.id)
 
     if leave_time is None:
-        await update.message.reply_text(
-            "⚠️ Something went wrong saving your attendance. Please try again."
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⚠️ Something went wrong saving your attendance. Please try again.",
         )
         return
 
@@ -300,13 +317,16 @@ async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 leave_time.strftime("%H:%M:%S"),
                 dur_str, stored_session)
 
-    await update.message.reply_text(
-        f"👋 <b>{html.escape(name)}</b> marked as <b>left</b>\n"
-        f"🕐 Joined:   <b>{join_time.strftime('%H:%M:%S')}</b>\n"
-        f"🕐 Left:     <b>{leave_time.strftime('%H:%M:%S')}</b>\n"
-        f"⏱ Duration: <b>{dur_str}</b>\n"
-        f"📋 Session:  <code>{html.escape(stored_session)}</code>\n\n"
-        f"✔️ Your attendance has been saved to the record.",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=(
+            f"👋 <b>{html.escape(name)}</b> marked as <b>left</b>\n"
+            f"🕐 Joined:   <b>{join_time.strftime('%H:%M:%S')}</b>\n"
+            f"🕐 Left:     <b>{leave_time.strftime('%H:%M:%S')}</b>\n"
+            f"⏱ Duration: <b>{dur_str}</b>\n"
+            f"📋 Session:  <code>{html.escape(stored_session)}</code>\n\n"
+            f"✔️ Your attendance has been saved to the record."
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -315,40 +335,55 @@ async def cmd_setsession(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = update.effective_user
     chat = update.effective_chat
     if not _is_admin(user.id):
-        await update.message.reply_text("⛔ Only admins can set the session name.")
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⛔ Only admins can set the session name.",
+        )
         return
     if not context.args:
-        await update.message.reply_text("Usage: /setsession <label>")
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="Usage: /setsession <label>",
+        )
         return
     label = " ".join(context.args).strip()
     _active_sessions[chat.id] = label
-    await update.message.reply_text(
-        f"✅ Session label set to: <code>{html.escape(label)}</code>",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=f"✅ Session label set to: <code>{html.escape(label)}</code>",
         parse_mode=ParseMode.HTML,
     )
 
 
 async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_admin(update.effective_user.id):
-        await update.message.reply_text(
-            "⛔ Only admins can download or view attendance reports."
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⛔ Only admins can download or view attendance reports.",
         )
         return
     chat = update.effective_chat
     label = _session(chat.id, context)
     df = attendance.get_session_df(chat.id, label)
     if df.empty:
-        await update.message.reply_text(
-            f"No completed entries yet for session:\n"
-            f"<code>{html.escape(label)}</code>\n\n"
-            f"(Entries are saved when participants leave the call.)",
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"No completed entries yet for session:\n"
+                f"<code>{html.escape(label)}</code>\n\n"
+                f"(Entries are saved when participants leave the call.)"
+            ),
             parse_mode=ParseMode.HTML,
         )
         return
     report = build_text_report(label, df)
     # Telegram message limit is 4096 chars; split if needed
     for chunk in _split(report, 4096):
-        await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=chunk,
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -356,14 +391,18 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     from config import MASTER_XLSX
 
     if not os.path.exists(MASTER_XLSX):
-        await update.message.reply_text(
-            "📭 No attendance data yet.\n"
-            "Members need to use /present and /leave first."
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                "📭 No attendance data yet.\n"
+                "Members need to use /present and /leave first."
+            ),
         )
         return
 
     with open(MASTER_XLSX, "rb") as f:
-        await update.message.reply_document(
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
             document=f,
             filename="master_attendance.xlsx",
             caption="📊 <b>Master Attendance Sheet</b>\n"
@@ -376,11 +415,15 @@ async def cmd_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat = update.effective_chat
     sessions = attendance.list_sessions(chat.id)
     if not sessions:
-        await update.message.reply_text("No sessions recorded yet.")
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="No sessions recorded yet.",
+        )
         return
     lines = "\n".join(f"• <code>{html.escape(s)}</code>" for s in sessions)
-    await update.message.reply_text(
-        f"<b>Recorded sessions ({len(sessions)}):</b>\n{lines}",
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=f"<b>Recorded sessions ({len(sessions)}):</b>\n{lines}",
         parse_mode=ParseMode.HTML,
     )
 
@@ -389,7 +432,10 @@ async def cmd_whoisin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat = update.effective_chat
     active = attendance.get_active_participants(chat.id)
     if not active:
-        await update.message.reply_text("Nobody is currently marked as in the call.")
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="Nobody is currently marked as in the call.",
+        )
         return
     now = _now_local()
     lines = []
@@ -401,8 +447,9 @@ async def cmd_whoisin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"• <b>{html.escape(p['name'])}</b>{upart} — "
             f"joined {p['join_time'].strftime('%H:%M:%S')} ({m}m {s}s ago)"
         )
-    await update.message.reply_text(
-        f"<b>Currently in the call ({len(active)}):</b>\n" + "\n".join(lines),
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=f"<b>Currently in the call ({len(active)}):</b>\n" + "\n".join(lines),
         parse_mode=ParseMode.HTML,
     )
 
@@ -411,18 +458,23 @@ async def cmd_deletesession(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user = update.effective_user
     chat = update.effective_chat
     if not _is_admin(user.id):
-        await update.message.reply_text("⛔ Only admins can delete session data.")
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="⛔ Only admins can delete session data.",
+        )
         return
     label = _session(chat.id, context)
     deleted = attendance.delete_session(chat.id, label)
     if deleted:
-        await update.message.reply_text(
-            f"🗑 Session <code>{html.escape(label)}</code> deleted from CSV.",
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"🗑 Session <code>{html.escape(label)}</code> deleted from CSV.",
             parse_mode=ParseMode.HTML,
         )
     else:
-        await update.message.reply_text(
-            f"No data found for session: <code>{html.escape(label)}</code>",
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"No data found for session: <code>{html.escape(label)}</code>",
             parse_mode=ParseMode.HTML,
         )
 
